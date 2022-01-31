@@ -8,6 +8,13 @@ output: pdf_document
 ```{r setup, include=FALSE}
 library(tidyverse)
 library(gridExtra)
+library(lars)
+library(mvtnorm)
+library(glmnet)
+library(kableExtra)
+library(plotmo)
+library(matrixStats)
+library(reshape2)
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
@@ -51,14 +58,14 @@ plots <- lapply(bvec, marginalplot, n = 5000)
 
 ```
 
-# d)
+# e)
 I will implement an MH + Gibbs Sampler algorithm to sample from the posterior distributions. 
 ```{r}
-library(lars)
-library(mvtnorm)
-mh.gibbs <- function(y, X,
+
+
+mh.gibbs <- function(y = y, X = Xdat,
                      n.sim = 1000, burn = 0.1,
-                     a, b, beta){
+                     a = 1, b = 1, beta, lambda2){
   #Chain information
   n.total <- n.sim*(1.0 + burn)
   n.burn <- n.sim*burn
@@ -76,11 +83,15 @@ mh.gibbs <- function(y, X,
   for(i in 1:n.total){
     rss <- t(y - X %*% beta)%*%(y - X %*% beta)
     #lambda2
-    lambda2 <- 1/rgamma(1, a, rate = b)
+    if(!is.na(lambda2)){
+        lambda2 <- lambda2
+    } else {
+        lambda2 <- 1/rgamma(1, a, rate = b) 
+    }
     #tau2
     tau2 <- -(2/lambda2) * log(runif(10))
     #sigma2
-    shape <- 0.1 + n/2
+    shape <- 0.1
     scale <- rss/2 + 0.1
     sigma2 <- 1/rgamma(1, shape = shape, scale = scale)
     #beta
@@ -98,74 +109,56 @@ mh.gibbs <- function(y, X,
 }
 
 data("diabetes")
-X <- diabetes$x
+Xdat <- diabetes$x
 y <- diabetes$y
-betahat <- solve(t(X) %*% X) %*% t(X) %*% y
-out <- mh.gibbs(y = y, X = X, n = 10000, burn = 0,
-         a = 1, b = 1, beta = betahat)
+betahat <- solve(t(Xdat) %*% Xdat) %*% t(Xdat) %*% y
+out <- mh.gibbs(y = y, X = Xdat, n = 10000, burn = 0.1,
+         a = 1, b = 1, beta = betahat, lambda2 = NA)
 
-out1 <- mh.gibbs(y = y, X = X, n = 10000, burn = 0,
-         a = 1, b = 1, beta = rep(0, 10))
+coeffun <- apply(out$beta, 2, function(x){quantile(x,c(0.16,0.5,0.84))})
+coefme <- coeffun[2,]
 
-apply(out$beta, 2, function(x){quantile(x, c(0.025, 0.5, 0.975))})
+fit.glm <- glmnet(Xdat, y, intercept = FALSE)
+coefglm <- coef(fit.glm, s = min(fit.glm$lambda))
+compare <- tibble("My MCMC" = coefme, "Glmnet" = matrix(coefglm[-1]))
+
+kable(compare) %>% kable_styling(full_width = F)
+
 ```
 
+# f
 ```{r}
-library(lars)
-data("diabetes")
-dia_x <- diabetes$x
-dia_y <- diabetes$y
-initial_value <- list(tau_sq=rep(1,10),
-                      beta=rep(0,10),
-                      sigma_sq=0.01,
-                      lambda_sq=1)
-mcmc.sim.gibbs <- function(initial_value, reg_path=F, sen_analysis=F,
-                           nsim=1000, burn=0, a=1, b=2,
-                           X=dia_x, Y=dia_y, seed=199609){
-  set.seed(seed)
-  nsim.total <- nsim*(1.0 + burn)
-  burn.num <- nsim*burn
-  
-  tau_sq <- initial_value$tau_sq
-  beta <- initial_value$beta
-  sigma_sq <- initial_value$sigma_sq
-  lambda_sq <- initial_value$lambda_sq
-  
-  beta.ch <- matrix(NA,nsim,10)
-  bmean.ch <- matrix(NA,nsim,10)
-  sigma_sq.ch <- vector()
-  rate.ch<-vector()
-  for(i in 1:nsim.total){
-    #i=2
-    #beta
-    bmean <- solve(t(X)%*%X+diag(sigma_sq/tau_sq))%*%t(X)%*%Y
-    bvar <- solve(t(X)%*%X/sigma_sq+solve(diag(tau_sq)))
-    beta <- rmvnorm(n=1, mean = bmean, sigma = bvar)
-    browser()
-    #tau_sq
-    tau_sq <- -(2/lambda_sq)*log(runif(10))
-    #lambda_sq
-    if(reg_path==T){
-      lambda_sq <- lambda_sq
-    }else if(sen_analysis==T){
-      lambda_sq <- 1/rgamma(1, a, rate = b)
-    }else{
-      lambda_sq <- -b/log(runif(1))
-    }
-    #sigma_sq
-    sigma_sq <- 1/rgamma(1,0.1,scale = 1/2*t(Y-X%*%t(beta))%*%(Y-X%*%t(beta))+0.1)
-    if(i > burn.num){
-      i1 <- i - burn.num
-      bmean.ch[i1,] <- bmean
-      beta.ch[i1,] <- beta
-      sigma_sq.ch[i1] <- sigma_sq
-      rate.ch[i1]<-1/2*t(Y-X%*%t(beta))%*%(Y-X%*%t(beta))+10
-    }
-  }
-  return(list(beta=beta.ch, sigma_sq=sigma_sq.ch))
-}
+lambdas <- exp(seq(-5, 5, 0.1))
+out <- lapply(lambdas, function(x)mh.gibbs(y = y, X = Xdat,
+                     n.sim = 1000, burn = 0.1,
+                     a = 1, b = 1, beta = betahat, lambda2 = x))
+betas <- lapply(out, `[`, c("beta"))
+betas <- lapply(betas, sapply, colMedians)
 
-results_gibbs <- mcmc.sim.gibbs(initial_value,nsim=10000, burn=0.3, b=2)
-apply(results_gibbs$beta, 2, function(x){quantile(x,c(0.025,0.5,0.975))})
+df <- do.call("cbind", betas)
+rownames(df) <- colnames(Xdat)
+df <- t(df) %>% as.data.frame() %>% melt()
+df$lambda <- rep(seq(-5, 5, 0.1), 10)
+
+ggplot(data = df, aes(lambda, value, color = variable)) +
+  geom_smooth(method = loess, se= FALSE) +
+  ggtitle("Custom MCMC path") + xlab("log lambda") + ylab("beta")
+
+plot_glmnet(fit.glm, xvar = "lambda")
+```
+
+# g
+```{r}
+df.ab <- data.frame(a = c(1, 5, 10, 1, 5, 10, 1, 5, 10),
+                    b = c(1, 1, 1, 5, 5, 5, 10, 10, 10))
+out <- apply(df.ab, 1, function(df.ab)mh.gibbs(y = y, X = Xdat,
+                     n.sim = 1000, burn = 0.1,
+                     a = df.ab[1], b = df.ab[2], beta = betahat, lambda2 = NA))
+betas <- lapply(out, `[`, c("beta"))
+betas <- lapply(betas, sapply, colMedians)
+df <- do.call("cbind", betas)
+colnames(df) <- paste0("(",df.ab$a,", ", df.ab$b, ")")
+rownames(df) <- colnames(Xdat)
+df %>% kable() %>% kable_styling(full_width = F)
 ```
 
