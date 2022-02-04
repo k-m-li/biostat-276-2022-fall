@@ -58,8 +58,42 @@ marginalplot <- function(n, b){
 plots <- lapply(bvec, marginalplot, n = 5000)
 
 ```
-# d)
 
+# d)
+We compute the full conditionals below for use in MCMC implementation:
+\begin{flalign*}
+    p(\vec{\beta}, \tau_1^2, \dots, \tau_p^2, \sigma^2, \lambda^2 | \vec{y}) &\propto 
+    p(\vec{y} | \vec{\beta}, \tau_1^2, \dots, \tau_p^2, \sigma^2, \lambda^2)
+    p(\vec{\beta} |  \tau_1^2, \dots, \tau_p^2,) 
+    p( \tau_1^2, \dots, \tau_p^2, | \lambda^2)
+    p(\lambda^2)
+    p(\sigma^2) \\
+    \\
+    p(\sigma^2 |  \vec{y}) &\propto p(\vec{y} | \vec{\beta}, \tau_1^2, \dots, \tau_p^2, \beta, \lambda^2) \\
+    &\propto p(\vec{y} | \vec{\beta}, \tau_1^2, \dots, \tau_p^2, \sigma^2, \lambda^2)p(\sigma^2) \\
+    &\propto (\sigma^2)^{\frac{-n}{2}}\exp[\frac{-1}{2\sigma^2}(\vec{y} - X\vec{\beta})^T(\vec{y} - X\vec{\beta})](\sigma^2)^{-0.1-1}\exp(\frac{-0.1}{\sigma^2}) \\
+    &= {\sigma^2}^{(-\frac{n}{2} + 0.1)-1}\exp[-\frac{1}{\sigma^2}(0.1 + \frac{1}{2}(\vec{y} - X\vec{\beta})^T(\vec{y} - X\vec{\beta})] \\
+    &= \text{Inverse Gamma}(\frac{n}{2} + 0.1, 0.1 + \frac{1}{2}(\vec{y} - X\vec{\beta})^T(\vec{y} - X\vec{\beta})) \\
+    \\
+    p(\vec{\beta} | \vec{y}) &\propto p(\vec{y} | \vec{\beta}, \tau_1^2, \dots, \tau_p^2, \sigma^2, \lambda^2)(\vec{\beta} |  \tau_1^2, \dots, \tau_p^2,) \\
+    &\propto \exp[-\frac{1}{2\sigma^2}(\vec{y} - X\vec{\beta})^T(\vec{y} - X\vec{\beta})]\exp[-\frac{1}{2}\Sigma^{-1}\vec{\beta}^T\vec{\beta}] \text{ for } \Sigma = \text{diag}(\tau_i^2) \\
+    &= \exp[-\frac{1}{2\sigma^2}(\vec{y}^T\vec{y} - 2\vec{y}^y(X\vec(\beta))^T + (X\vec{\beta})^T(X\vec{\beta})) - \frac{1}{2}\vec{\beta}^T\Sigma^{-1}\vec{\beta}) \\
+    &\propto \exp[-\frac{1}{2}(\vec\beta^T(\frac{X^TX}{\sigma^2} + \Sigma^{-1})\vec\beta) - \frac{1}{2\sigma^2}2(X\vec\beta)^T\vec y] \\
+    &= N_p([\frac{X^TX}{\sigma^2} + \Sigma^{-1}]^{-1}\frac{X^T\vec y}{\sigma^2}, [\frac{X^TX}{\sigma^2} + \Sigma^{-1}]^{-1})
+    \\
+    p(\tau_i^2 | \beta_i, \lambda^2, \sigma^2, \vec y) &\propto p(\beta_i | \tau_i^2)p(\tau_i^2 | \lambda^2) \\
+    &\propto \frac{1}{\tau_i}\exp[-\frac{1}{2}(\frac{\beta_i}{\tau_i})^2 - \frac{\lambda^2}{2}\tau_i^2] \\
+    &= (\frac{1}{\tau_i^2})^{\frac{1}{2}}\exp[-\frac{1}{2}(\beta^2 (\frac{1}{\tau_i^2}) + \lambda^2(\frac{1}{\frac{1}{\tau_i^2}})]\\
+    \intertext{Let $u = \frac{1}{\tau_i^2}$ such that the Jacobian: $\frac{d}{du}(\frac{1}{u}) = -\frac{1}{u^2}$}
+    p(e | \beta_i, \lambda) &\propto  u^{\frac{1}{2}}\exp[-\frac{\lambda^2}{2}(\frac{\beta_i^2}{\lambda^2}u + \frac{1}{u})]u^{-2} \\
+    &\propto e^{-\frac{3}{2}} \exp[-\frac{\lambda^2}{2}(\frac{\beta_i^2}{\lambda^2}u + \frac{1}{u})] \\
+    &= IG([\frac{\lambda^2}{\beta_i^2}]^\frac{1}{2}, \lambda^2) \\
+    \\
+    p(\lambda_i^2 | \tau_i^2, \vec\beta, \sigma^2, \vec y) &\propto p(\vec\tau | \lambda^2)p(\lambda^2) \\
+    &\propto \Pi^{p}_{i=1} \exp[-\frac{\lambda^2}{2}\tau_i^2](\lambda^2)^{a-1}\exp[-b\lambda^2] \\
+    &\propto \exp[-(\frac{\sum^p_{i=1}\tau_i^2}{2} + b)\lambda^2](\lambda^2)^{a-1} \\
+    &= \text{Gamma}(a, \frac{\sum^p_{i=1}\tau_i^2}{2} + b)
+\end{flalign*}
 
 # e)
 I will implement a Gibbs Sampler algorithm to sample from the posterior distributions. 
@@ -132,7 +166,7 @@ kable(compare) %>% kable_styling(full_width = F)
 ```
 
 # f
-```{r}
+```{r, cache = TRUE}
 lambdas <- exp(seq(-4, 4, 0.1))^2
 out <- lapply(lambdas, function(x)gibbs(y = y, X = Xdat,
                      n.sim = 1000, burn = 0.1,
@@ -155,7 +189,7 @@ plot_glmnet(fit.glm, xvar = "lambda")
 ```
 
 # g
-```{r}
+```{r, cache = TRUE}
 df.ab <- data.frame(a = c(1, 5, 10, 1, 5, 10, 1, 5, 10),
                     b = c(1, 1, 1, 5, 5, 5, 10, 10, 10))
 out <- apply(df.ab, 1, function(df.ab)gibbs(y = y, X = Xdat,
