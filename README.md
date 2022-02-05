@@ -1,2 +1,2 @@
-# biostat-276-2022-fall
-Repository for Biostat 276: Bayesian Computation
+# Biostat 276: Bayesian Computation
+Repository for B276: Bayesian Computation taken at UCLA in Fall 2022.

@@ -37,3 +37,7 @@ vignettes/*.pdf
 
 # R Environment Variables
 .Renviron
+
+# Cached files
+HW1/Project1_cache/
+HW1/Project1_files/
