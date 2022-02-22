@@ -18,6 +18,7 @@ library(peakRAM)
 
 ## Bayesian Probit Regression
 
+All code for this project can be found at https://github.com/k-m-li/biostat-276-2022-fall
 # 1)
 Let's compute our target distribution:
 \begin{align*}
